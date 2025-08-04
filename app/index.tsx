@@ -1,4 +1,3 @@
-import LogoKarleta from '@/components/logokarleta'; // <-- on importe ton composant
 import { useRouter } from 'expo-router';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
@@ -7,7 +6,8 @@ export default function HomeScreen() {
 
   return (
     <View style={styles.container}>
-      <LogoKarleta style={styles.logo} /> {/* <-- on remplace le titre KARL */}
+      <Text style={styles.mainText}>KARL</Text>
+      <Text style={styles.subText}>ETA STUDIO</Text>
 
       <Image
         source={require('@/assets/images/KARLOGO.png')}
@@ -15,7 +15,7 @@ export default function HomeScreen() {
         resizeMode="contain"
       />
       
-      <Pressable style={styles.button} onPress={() => router.push('/president')}>
+      <Pressable style={styles.button} onPress={() => router.push('/username')}>
         <Text style={styles.buttonText}>Lancer une partie</Text>
       </Pressable>
     </View>
@@ -28,8 +28,28 @@ const styles = StyleSheet.create({
     backgroundColor: '#051934',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 20,
+
   },
+  mainText: {
+    fontSize: 120,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 6,
+    marginTop: 160,
+    textShadowColor: 'rgba(0, 0, 0, 0.7)',
+    textShadowOffset: { width: 2, height: 2 },
+    textShadowRadius: 3,
+  },
+  subText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginBottom: 60,
+    textShadowColor: 'black',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
+  },
+  
   logo: {
     marginBottom: 10,
   },

@@ -1,6 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native';
 
-export default function LogoKarletaText({ style }) {
+export default function LogoKarleta({ style }) {
   return (
     <View style={[styles.container, style]}>
       <Text style={styles.mainText}>KARL</Text>
@@ -11,11 +11,14 @@ export default function LogoKarletaText({ style }) {
 
 const styles = StyleSheet.create({
   container: {
+    position: 'absolute',
+    top: 30,
+    left: 0,
+    right: 0,
     alignItems: 'center',
-    marginVertical: 10,
   },
   mainText: {
-    fontSize: 120,
+    fontSize: 76,
     fontWeight: '900',
     color: '#FFFFFF',
     letterSpacing: 4,
@@ -24,7 +27,7 @@ const styles = StyleSheet.create({
     textShadowRadius: 3,
   },
   subText: {
-    fontSize: 20,
+    fontSize: 16,
     fontWeight: 'bold',
     color: '#FFFFFF',
     marginTop: 6,
