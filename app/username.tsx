@@ -1,7 +1,8 @@
 import LogoKarleta from '@/components/LogoKarleta';
+import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image, Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 export default function UsernameScreen() {
   const [username, setUsername] = useState('');
@@ -18,17 +19,24 @@ export default function UsernameScreen() {
 
      <LogoKarleta style={styles.logo} />
 
-      <Text style={styles.title}>Entre ton pseudo</Text>
+    <Image
+        source={require('@/assets/images/karlname.png')}
+        style={styles.playerImage}
+        resizeMode="contain"
+      />
+
+     <View style={styles.inputContainer}>
       <TextInput
-        placeholder=""
-        placeholderTextColor="#aaa"
+        placeholder="Ton pseudo*"
+        placeholderTextColor="white"
         value={username}
         onChangeText={setUsername}
         style={styles.input}
       />
       <Pressable style={styles.button} onPress={handleStart}>
-        <Text style={styles.buttonText}>Commencer la partie</Text>
+        <MaterialIcons name="arrow-forward-ios" size={32} color="black" />
       </Pressable>
+        </View>
     </View>
   );
 }
@@ -36,36 +44,44 @@ export default function UsernameScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#021020',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: '#051934',
+    justifyContent: 'flex-end',
     padding: 20,
+    paddingBottom: 120, 
   },
   logo: {
     marginBottom: 40,
   },
-  title: {
-    fontSize: 24,
-    color: 'white',
-    marginBottom: 20,
+  playerImage: {
+    width: 301,
+    height: 301,
+    marginBottom: -40, // 👉 chevauche le conteneur en-dessous
+    zIndex: 0,
+    right: 0,
+
+  },
+  inputContainer: {
+    flexDirection: 'row',
+    alignSelf: 'center',
+    gap : 15,
   },
   input: {
-    borderColor: '#fff',
-    borderWidth: 1,
-    padding: 10,
-    width: '80%',
-    borderRadius: 8,
+    backgroundColor: "#364B66",
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    width: 272,
+    height: 68,
+    borderRadius: 20,
     color: 'white',
-    marginBottom: 20,
+    letterSpacing: 1.2,
+    fontWeight: 'bold',
   },
   button: {
-    backgroundColor: 'black',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 8,
-  },
-  buttonText: {
-    color: '#fff',
-    fontSize: 18,
+    backgroundColor: "#364B66",
+    height: 68,
+    width: 45,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 20,
   },
 });

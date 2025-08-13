@@ -44,7 +44,7 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     color: '#FFFFFF',
-    marginBottom: 60,
+    marginBottom: 40,
     textShadowColor: 'black',
     textShadowOffset: { width: 1, height: 1 },
     textShadowRadius: 2,
@@ -56,7 +56,7 @@ const styles = StyleSheet.create({
   logoImage: {
     width: 180,
     height: 180,
-    marginBottom: 30,
+    marginBottom: 80,
   },
   button: {
     backgroundColor: 'black',
