@@ -66,8 +66,10 @@ export default function PartieScreen() {
     const deck = buildDeck();
     const shuffled = shuffle(deck);
     const dealt = deal(shuffled, NUM_PLAYERS);
+    console.log('[PRESIDENT] dealt hand sizes:', dealt.map(h => h.length), dealt);
     setHands(dealt);
     setStarted(true);
+    console.log('[PRESIDENT] started:', true);
   };
 
   // Initialise la partie au montage
@@ -84,69 +86,108 @@ export default function PartieScreen() {
     [myHand]
   );
 
+  // --- Opponents mini-decks in corners ---
+  type Corner = 'topLeft' | 'topRight' | 'bottomLeft' | 'bottomRight';
+
+  function OpponentMini({
+    hand,
+    label,
+    corner,
+  }: {
+    hand: PlayingCard[];
+    label: string;
+    corner: Corner;
+  }) {
+    return (
+      <View
+        style={[
+          styles.opponentContainer,
+          corner === 'topLeft' && styles.topLeft,
+          corner === 'topRight' && styles.topRight,
+          corner === 'bottomLeft' && styles.bottomLeft,
+          corner === 'bottomRight' && styles.bottomRight,
+        ]}
+        pointerEvents="none"
+      >
+        <Text style={styles.opponentLabel}>{label}</Text>
+        <View style={styles.miniDeckRow}>
+          <View style={styles.backCard}>
+            <Text style={styles.backCount}>{hand.length}</Text>
+          </View>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={{ flex: 1 }}>
-      <View style={styles.container}>
-        {/* Statistiques rapides des autres joueurs */}
-        {started && (
-          <View style={styles.tableInfo}>
-            {hands.slice(1).map((h, i) => (
-              <Text key={i} style={styles.infoText}>
-                Joueur {i + 2} : {h.length} cartes
-              </Text>
-            ))}
-          </View>
-        )}
-        <Text style={styles.title}>Jeu du Président 🃏</Text>
-        <GameHeader
-          round={1}
-          role="En jeu"
-          playerName={playerName || 'Joueur'}
-        />
-        <Text onPress={startOrResetGame} style={{ color: '#9fb6d0', marginTop: 8, alignSelf: 'flex-start', textDecorationLine: 'underline' }}>
-          Rémélanger et redistribuer
-        </Text>
-
-        {started ? (
-          <>
-            <Text style={styles.subtitle}>Ta main ({myHand.length} cartes)</Text>
-            {/* Other content can go here */}
-          </>
-        ) : (
-          <Text style={styles.infoText}>Préparation du paquet…</Text>
-        )}
-      </View>
-      {started && (
-        <View style={styles.deckContainer}>
-          <FlatList
-            horizontal
-            data={myHandSorted}
-            keyExtractor={(item: PlayingCard, idx) => `${item.suit}-${item.value}-${idx}`}
-            contentContainerStyle={styles.handList}
-            renderItem={({ item }) => (
-              <Card value={item.value} suit={item.suit} style={styles.card} />
-            )}
-            showsHorizontalScrollIndicator={false}
+      {/* MAIN AREA (does not include bottom controls/deck) */}
+      <View style={styles.mainArea}>
+        <View style={styles.container}>
+          <Text style={styles.title}>Jeu du Président 🃏</Text>
+          <GameHeader
+            round={1}
+            role="En jeu"
+            playerName={playerName || 'Joueur'}
           />
         </View>
+        {/* Opponents in corners, confined to mainArea */}
+        {started && (
+          <View style={styles.opponentsLayer} pointerEvents="none">
+            {hands[1] && (
+              <OpponentMini hand={hands[1]} label="Joueur 2" corner="topLeft" />
+            )}
+            {hands[2] && (
+              <OpponentMini hand={hands[2]} label="Joueur 3" corner="topRight" />
+            )}
+            {hands[3] && (
+              <OpponentMini hand={hands[3]} label="Joueur 4" corner="bottomLeft" />
+            )}
+            {hands[4] && (
+              <OpponentMini hand={hands[4]} label="Joueur 5" corner="bottomRight" />
+            )}
+          </View>
+        )}
+      </View>
+      {/* BOTTOM AREA */}
+      {started && (
+        <>
+          <View style={styles.deckContainer}>
+            <FlatList
+              horizontal
+              data={myHandSorted}
+              keyExtractor={(item: PlayingCard, idx) => `${item.suit}-${item.value}-${idx}`}
+              contentContainerStyle={styles.handList}
+              renderItem={({ item }) => (
+                <Card value={item.value} suit={item.suit} style={styles.card} />
+              )}
+              showsHorizontalScrollIndicator={false}
+            />
+          </View>
+        </>
       )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  mainArea: {
+    flex: 1,
+    position: 'relative',
+    backgroundColor: '#021020',
+  },
   container: {
     flex: 1,
     backgroundColor: '#021020',
     alignItems: 'center',
-    paddingTop: 50,
+    paddingTop: 20,
     paddingHorizontal: 20,
+    zIndex: 1,
   },
   title: {
     fontSize: 28,
     fontWeight: 'bold',
     color: '#fff',
-    marginVertical: 20,
   },
   subtitle: {
     fontSize: 18,
@@ -155,23 +196,77 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   handList: {
-    paddingVertical: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
   },
   card: {
     marginRight: 10,
   },
-  tableInfo: {
-    position: 'absolute',
-    bottom: 20,
-    right: 10,
-    gap: 4,
-  },
-  infoText: {
-    color: '#9fb6d0',
-    fontSize: 14,
-  },
   deckContainer: {
     marginTop: 'auto',
-    paddingVertical: 16,
+    paddingVertical: 10,
+  },
+  opponentsLayer: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    zIndex: 2,
+    elevation: 2,
+  },
+  opponentContainer: {
+    position: 'absolute',
+    maxWidth: 180,
+    padding: 6,
+    borderRadius: 8,
+    backgroundColor: 'rgba(2,16,32,0.6)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  topLeft: { top: 10, left: 10, alignItems: 'flex-start' },
+  topRight: { top: 10, right: 10, alignItems: 'flex-end' },
+  bottomLeft: { bottom: 10, left: 10, alignItems: 'flex-start' },
+  bottomRight: { bottom: 10, right: 10, alignItems: 'flex-end' },
+  opponentLabel: {
+    color: '#cde2ff',
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  miniDeckRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  miniCard: {
+    width: 26,
+    height: 38,
+    borderRadius: 4,
+    // on laisse le fond géré par le composant Card
+    borderWidth: 1,
+    borderColor: '#3b5573',
+    overflow: 'hidden',
+    backgroundColor: '#123a6b',
+  },
+  miniCardOverlap: {
+    marginLeft: -12,
+  },
+  miniOverflow: {
+    color: '#cde2ff',
+    fontSize: 11,
+    marginLeft: 6,
+  },
+  backCard: {
+    width: 32,
+    height: 48,
+    borderRadius: 6,
+    backgroundColor: '#0e223c', // dos de carte
+    borderWidth: 1,
+    borderColor: '#3b5573',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  backCount: {
+    color: '#cde2ff',
+    fontSize: 14,
+    fontWeight: '700',
   },
 });
