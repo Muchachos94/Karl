@@ -1,42 +1,41 @@
-import LogoKarleta from '@/components/LogoKarleta';
-import { MaterialIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import { useState } from 'react';
-import { Image, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { MaterialIcons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import { useState } from "react";
+import { Image, Pressable, StyleSheet, TextInput, View } from "react-native";
+import LogoKarleta from "../components/logokarleta";
 
 export default function UsernameScreen() {
-  const [username, setUsername] = useState('');
+  const [username, setUsername] = useState("");
   const router = useRouter();
 
   const handleStart = () => {
-    if (username.trim() !== '') {
+    if (username.trim() !== "") {
       router.push(`/president?username=${encodeURIComponent(username)}`);
     }
   };
 
   return (
     <View style={styles.container}>
+      <LogoKarleta style={styles.logo} />
 
-     <LogoKarleta style={styles.logo} />
-
-    <Image
-        source={require('@/assets/images/karlname.png')}
+      <Image
+        source={require("../assets/images/karlname.png")}
         style={styles.playerImage}
         resizeMode="contain"
       />
 
-     <View style={styles.inputContainer}>
-      <TextInput
-        placeholder="Ton pseudo*"
-        placeholderTextColor="white"
-        value={username}
-        onChangeText={setUsername}
-        style={styles.input}
-      />
-      <Pressable style={styles.button} onPress={handleStart}>
-        <MaterialIcons name="arrow-forward-ios" size={32} color="black" />
-      </Pressable>
-        </View>
+      <View style={styles.inputContainer}>
+        <TextInput
+          placeholder="Ton pseudo*"
+          placeholderTextColor="white"
+          value={username}
+          onChangeText={setUsername}
+          style={styles.input}
+        />
+        <Pressable style={styles.button} onPress={handleStart}>
+          <MaterialIcons name="arrow-forward-ios" size={32} color="black" />
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -44,10 +43,10 @@ export default function UsernameScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#051934',
-    justifyContent: 'flex-end',
+    backgroundColor: "#051934",
+    justifyContent: "flex-end",
     padding: 20,
-    paddingBottom: 120, 
+    paddingBottom: 120,
   },
   logo: {
     marginBottom: 40,
@@ -58,12 +57,11 @@ const styles = StyleSheet.create({
     marginBottom: -40, // 👉 chevauche le conteneur en-dessous
     zIndex: 0,
     right: 0,
-
   },
   inputContainer: {
-    flexDirection: 'row',
-    alignSelf: 'center',
-    gap : 15,
+    flexDirection: "row",
+    alignSelf: "center",
+    gap: 15,
   },
   input: {
     backgroundColor: "#364B66",
@@ -72,16 +70,16 @@ const styles = StyleSheet.create({
     width: 272,
     height: 68,
     borderRadius: 20,
-    color: 'white',
+    color: "white",
     letterSpacing: 1.2,
-    fontWeight: 'bold',
+    fontWeight: "bold",
   },
   button: {
     backgroundColor: "#364B66",
     height: 68,
     width: 45,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     borderRadius: 20,
   },
 });

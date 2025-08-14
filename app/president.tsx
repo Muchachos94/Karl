@@ -1,272 +1,528 @@
-// app/partie.jsx (ou le fichier de ta page)
-import GameHeader from '@/components/Gameheader';
-import { useLocalSearchParams } from 'expo-router';
-import React, { useEffect, useMemo, useState } from 'react';
-import { FlatList, StyleSheet, Text, View } from 'react-native';
+import { useLocalSearchParams } from "expo-router";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Animated,
+  Easing,
+  FlatList,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 // @ts-ignore - composant JS sans définitions de types
-import CardJS from '@/components/card';
+import CardJS from "../components/card";
+import {
+  EngineEvent,
+  PlayingCard,
+  PresidentEngine,
+  RANK_ORDER,
+} from "../lib/presidentRules";
 
 const Card = CardJS as React.ComponentType<any>;
 
+/** crée une table avec l'utilisateur en premier, complétée par des bots. */
+function makePlayers(
+  usernameRaw: string | undefined,
+  targetCount = 3
+): string[] {
+  const username = (usernameRaw || "Joueur").trim() || "Joueur";
+  const bots = ["Axel", "Elias", "Tito", "KarlBot"];
+  const names: string[] = [username];
+  for (const b of bots) {
+    if (names.length >= targetCount) break;
+    if (!names.includes(b)) names.push(b);
+  }
+  return names;
+}
 
-// Types de jeu (TS)
-type Suit = 'spade' | 'heart' | 'diamond' | 'club';
-type Value = 'A'|'K'|'Q'|'J'|'10'|'9'|'8'|'7'|'6'|'5'|'4'|'3'|'2';
-type PlayingCard = { value: Value; suit: Suit };
-
-const SUITS: Suit[] = ['spade', 'heart', 'diamond', 'club']; // ♠ ♥ ♦ ♣
-const VALUES: Value[] = ['A','K','Q','J','10','9','8','7','6','5','4','3','2']; 
-// ordre d’affichage pour le visuel; la logique du Président (2 > A > K...) vivra ailleurs
-
-function buildDeck(): PlayingCard[] {
-  const deck: PlayingCard[] = [];
-  for (const suit of SUITS) {
-    for (const value of VALUES) {
-      deck.push({ value, suit });
+// libellés “un/deux/trois/quatre”
+function qtyLabel(n: number) {
+  return n === 1 ? "un" : n === 2 ? "deux" : n === 3 ? "trois" : "quatre";
+}
+// texte simple pour l’historique (sans couleur ni symbole)
+function formatHistoryLine(evt: EngineEvent): string {
+  switch (evt.kind) {
+    case "startTrick":
+      return `— Nouveau pli — ${evt.starter} commence`;
+    case "endTrick":
+      return `Pli terminé — ${evt.nextStarter} commencera`;
+    case "play": {
+      const n = evt.cards.length;
+      const v = evt.cards[0].value;
+      return `${evt.player} joue ${qtyLabel(n)} ${v}`;
     }
+    case "pass":
+      if (evt.reason === "lock")
+        return `${evt.player} passe son tour car il n'a pas cette carte`;
+      if (evt.reason === "cantOpen") return `${evt.player} passe l'ouverture`;
+      return `${evt.player} passe son tour`;
+    case "fold":
+      return `${evt.player} se couche`;
+    case "lockSet":
+      return `🔒 Verrou : ${evt.target} doit jouer ${evt.value}`;
+    case "lockClear":
+      return `🔓 Verrou levé`;
+    case "cut":
+      return `🔥 Carré de ${evt.value} — tas coupé`;
+    case "two":
+      return `🂢 ${evt.player} a joué un 2 — fin du pli`;
+    case "forcedLast":
+      return `${evt.player} perd (seul un 2 pour ouvrir)`;
   }
-  return deck;
 }
 
-// Ordre de force pour le Président (du plus faible au plus fort)
-const RANK_ORDER = ['3','4','5','6','7','8','9','10','J','Q','K','A','2'];
-const rankIndex = (v: Value | string) => RANK_ORDER.indexOf(String(v).toUpperCase());
-
-// Mélange Fisher–Yates (non mutatif)
-function shuffle<T>(array: T[]): T[] {
-  const a = array.slice(); // copie pour éviter de muter l'original
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
-
-// Distribution en round-robin jusqu’à épuisement
-function deal(deck: PlayingCard[], numPlayers: number): PlayingCard[][] {
-  const hands: PlayingCard[][] = Array.from({ length: numPlayers }, () => []);
-  let i = 0;
-  while (deck.length) {
-    hands[i % numPlayers].push(deck.pop()!);
-    i++;
-  }
-  return hands;
-}
-
-export default function PartieScreen() {
+export default function PresidentScreen() {
   const { username } = useLocalSearchParams();
-  const playerName = Array.isArray(username) ? username[0] : username;
+  const playerName = Array.isArray(username)
+    ? username[0]
+    : username ?? "Joueur";
 
-  const NUM_PLAYERS = 5; // ajuste si besoin (2 à 6 typiquement)
-
-  const [hands, setHands] = useState<PlayingCard[][]>([]);      // tableau de mains: [[], [], [], []]
-  const [started, setStarted] = useState(false);
-
-  const startOrResetGame = () => {
-    const deck = buildDeck();
-    const shuffled = shuffle(deck);
-    const dealt = deal(shuffled, NUM_PLAYERS);
-    console.log('[PRESIDENT] dealt hand sizes:', dealt.map(h => h.length), dealt);
-    setHands(dealt);
-    setStarted(true);
-    console.log('[PRESIDENT] started:', true);
-  };
-
-  // Initialise la partie au montage
-  useEffect(() => {
-    startOrResetGame();
-  }, []);
-
-  // Main du joueur local (index 0)
-  const myHand = useMemo<PlayingCard[]>(() => hands[0] || [], [hands]);
-
-  // Tri d'affichage selon la hiérarchie du Président (2 le plus fort)
-  const myHandSorted = useMemo(
-    () => [...myHand].sort((a, b) => rankIndex(a.value) - rankIndex(b.value)),
-    [myHand]
+  // === Table: utilisateur + IA ===
+  const playerNames = useMemo(() => makePlayers(playerName, 3), [playerName]);
+  const humanNames = useMemo(
+    () => new Set<string>([playerNames[0]]),
+    [playerNames]
   );
 
-  // --- Opponents mini-decks in corners ---
-  type Corner = 'topLeft' | 'topRight' | 'bottomLeft' | 'bottomRight';
+  // === Moteur ===
+  const engineRef = useRef<PresidentEngine | null>(null);
+  const [snap, setSnap] = useState(engineRef.current?.getSnapshot());
+  const [selectedIdxs, setSelectedIdxs] = useState<number[]>([]);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  function OpponentMini({
-    hand,
-    label,
-    corner,
-  }: {
-    hand: PlayingCard[];
-    label: string;
-    corner: Corner;
-  }) {
-    return (
-      <View
-        style={[
-          styles.opponentContainer,
-          corner === 'topLeft' && styles.topLeft,
-          corner === 'topRight' && styles.topRight,
-          corner === 'bottomLeft' && styles.bottomLeft,
-          corner === 'bottomRight' && styles.bottomRight,
-        ]}
-        pointerEvents="none"
-      >
-        <Text style={styles.opponentLabel}>{label}</Text>
-        <View style={styles.miniDeckRow}>
-          <View style={styles.backCard}>
-            <Text style={styles.backCount}>{hand.length}</Text>
-          </View>
-        </View>
-      </View>
+  // Historique “léger” (bandeau en haut)
+  const [history, setHistory] = useState<EngineEvent[]>([]);
+  // Animation d’arrivée des cartes
+  const [animBatch, setAnimBatch] = useState<PlayingCard[]>([]);
+  const animOpacity = useRef(new Animated.Value(0)).current;
+  const animTranslate = useRef(new Animated.Value(10)).current;
+
+  // init/reinit
+  useEffect(() => {
+    engineRef.current = new PresidentEngine(playerNames);
+    // events initiaux
+    const initial = engineRef.current.popEvents();
+    setHistory((prev) => clampHistory([...prev, ...initial]));
+
+    engineRef.current.advanceUntilHuman(humanNames);
+    setSnap(engineRef.current.getSnapshot());
+    enqueueEvents(engineRef.current.popEvents());
+
+    setSelectedIdxs([]);
+    setErrorMsg(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playerNames, humanNames]);
+
+  const meIndex = useMemo(
+    () =>
+      !snap ? -1 : snap.players.findIndex((p) => p.name === playerNames[0]),
+    [snap, playerNames]
+  );
+  const myTurn = useMemo(
+    () => !!snap && meIndex >= 0 && snap.trick.currentIndex === meIndex,
+    [snap, meIndex]
+  );
+  const myHand = useMemo<PlayingCard[]>(
+    () => (!snap || meIndex < 0 ? [] : snap.players[meIndex].hand),
+    [snap, meIndex]
+  );
+
+  // tri d’affichage (faible -> fort)
+  const myHandSorted = useMemo(
+    () =>
+      myHand
+        .slice()
+        .sort(
+          (a, b) => RANK_ORDER.indexOf(a.value) - RANK_ORDER.indexOf(b.value)
+        ),
+    [myHand]
+  );
+  // index trié -> index réel
+  const sortedToOriginalIndex = useMemo(() => {
+    const pairs = myHand.map((c, i) => ({ i, v: c.value, s: c.suit }));
+    const sortedPairs = pairs
+      .slice()
+      .sort((a, b) => RANK_ORDER.indexOf(a.v) - RANK_ORDER.indexOf(b.v));
+    return sortedPairs.map((p) => p.i);
+  }, [myHand]);
+
+  // pile condensée : dernières 5 cartes en éventail
+  const pile = useMemo<PlayingCard[]>(() => snap?.trick.pile ?? [], [snap]);
+  const visiblePile = useMemo(() => pile.slice(-5), [pile]);
+
+  // --- Sélection ---
+  function toggleSelect(idxSorted: number) {
+    if (!myTurn) return;
+    setErrorMsg(null);
+    setSelectedIdxs((prev) =>
+      prev.includes(idxSorted)
+        ? prev.filter((i) => i !== idxSorted)
+        : [...prev, idxSorted]
     );
   }
 
+  // --- Actions humaines ---
+  function onPlay() {
+    const engine = engineRef.current;
+    if (!engine || !snap || meIndex < 0 || !myTurn) return;
+
+    const indicesReal = selectedIdxs
+      .map((i) => sortedToOriginalIndex[i])
+      .sort((a, b) => a - b);
+    if (!indicesReal.length) {
+      setErrorMsg("Sélection vide.");
+      return;
+    }
+
+    const res = engine.humanPlay(indicesReal);
+    const events = engine.popEvents();
+    if (!res.ok) {
+      setErrorMsg(res.error || "Coup invalide.");
+      return;
+    }
+
+    // animer nos cartes
+    animatePlaysFromEvents(events);
+    setHistory((prev) => clampHistory([...prev, ...events]));
+    setSelectedIdxs([]);
+
+    engine.advanceUntilHuman(humanNames);
+    setSnap(engine.getSnapshot());
+    enqueueEvents(engine.popEvents());
+  }
+
+  function onPass() {
+    const engine = engineRef.current;
+    if (!engine || !snap || meIndex < 0 || !myTurn) return;
+    const res = engine.humanPass();
+    const events = engine.popEvents();
+    if (!res.ok) {
+      setErrorMsg(res.error || "Action impossible.");
+      return;
+    }
+    setHistory((prev) => clampHistory([...prev, ...events]));
+
+    engine.advanceUntilHuman(humanNames);
+    setSnap(engine.getSnapshot());
+    enqueueEvents(engine.popEvents());
+  }
+
+  function onFold() {
+    const engine = engineRef.current;
+    if (!engine || !snap || meIndex < 0 || !myTurn) return;
+    const res = engine.humanFold();
+    const events = engine.popEvents();
+    if (!res.ok) {
+      setErrorMsg(res.error || "Action impossible.");
+      return;
+    }
+    setHistory((prev) => clampHistory([...prev, ...events]));
+
+    engine.advanceUntilHuman(humanNames);
+    setSnap(engine.getSnapshot());
+    enqueueEvents(engine.popEvents());
+  }
+
+  // --- Animations & enchaînement d’événements IA ---
+  function enqueueEvents(events: EngineEvent[]) {
+    if (!events.length) return;
+    // intervalle “clair” entre actions
+    const base = 1200; // ms
+    const jitter = 400;
+
+    let delay = 0;
+    events.forEach((e) => {
+      setTimeout(() => {
+        if (e.kind === "play") animatePlaysFromEvents([e]);
+        setHistory((prev) => clampHistory([...prev, e]));
+        // rafraîchir l’état pour que la pile reflète la progression
+        if (engineRef.current) setSnap(engineRef.current.getSnapshot());
+      }, delay);
+      delay += base + Math.floor(Math.random() * jitter);
+    });
+  }
+
+  function animatePlaysFromEvents(events: EngineEvent[]) {
+    const batchCards = events
+      .filter((e) => e.kind === "play")
+      .flatMap((e) => (e as any).cards as PlayingCard[]);
+    if (!batchCards.length) return;
+
+    setAnimBatch(batchCards);
+    animOpacity.setValue(0);
+    animTranslate.setValue(8);
+    Animated.parallel([
+      Animated.timing(animOpacity, {
+        toValue: 1,
+        duration: 260,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(animTranslate, {
+        toValue: 0,
+        duration: 260,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start(() => setTimeout(() => setAnimBatch([]), 60));
+  }
+
+  function isPassEnabled(): boolean {
+    if (!snap || meIndex < 0) return false;
+    const tr = snap.trick;
+    return !!(
+      tr.lock?.active &&
+      tr.lock.targetIndex === meIndex &&
+      tr.patternCount !== null
+    );
+  }
+  function isFoldEnabled(): boolean {
+    if (!snap || meIndex < 0) return false;
+    const tr = snap.trick;
+    return tr.patternCount !== null;
+  }
+
+  const currentPlayerName =
+    snap?.players[snap?.trick.currentIndex || 0]?.name ?? "";
+
+  // Bandeau : on montre seulement les 3 derniers messages
+  const historyLines = useMemo(() => {
+    const last3 = history.slice(-3);
+    return last3.map(formatHistoryLine);
+  }, [history]);
+
   return (
-    <View style={{ flex: 1 }}>
-      {/* MAIN AREA (does not include bottom controls/deck) */}
-      <View style={styles.mainArea}>
-        <View style={styles.container}>
-          <Text style={styles.title}>Jeu du Président 🃏</Text>
-          <GameHeader
-            round={1}
-            role="En jeu"
-            playerName={playerName || 'Joueur'}
-          />
+    <View style={{ flex: 1, backgroundColor: "#021020" }}>
+      {/* Bandeau supérieur compact : historique + indicateur de tour */}
+      <View style={styles.topBar}>
+        <View style={styles.historyCol}>
+          {historyLines.map((line, i) => (
+            <Text
+              key={`h-${i}`}
+              style={[
+                styles.histText,
+                i === historyLines.length - 1 && styles.histTextStrong,
+              ]}
+            >
+              {line}
+            </Text>
+          ))}
         </View>
-        {/* Opponents in corners, confined to mainArea */}
-        {started && (
-          <View style={styles.opponentsLayer} pointerEvents="none">
-            {hands[1] && (
-              <OpponentMini hand={hands[1]} label="Joueur 2" corner="topLeft" />
-            )}
-            {hands[2] && (
-              <OpponentMini hand={hands[2]} label="Joueur 3" corner="topRight" />
-            )}
-            {hands[3] && (
-              <OpponentMini hand={hands[3]} label="Joueur 4" corner="bottomLeft" />
-            )}
-            {hands[4] && (
-              <OpponentMini hand={hands[4]} label="Joueur 5" corner="bottomRight" />
-            )}
-          </View>
-        )}
+        <View style={styles.turnPill}>
+          <Text style={styles.turnText}>
+            À <Text style={styles.turnStrong}>{currentPlayerName}</Text> de
+            jouer
+          </Text>
+        </View>
       </View>
-      {/* BOTTOM AREA */}
-      {started && (
-        <>
-          <View style={styles.deckContainer}>
-            <FlatList
-              horizontal
-              data={myHandSorted}
-              keyExtractor={(item: PlayingCard, idx) => `${item.suit}-${item.value}-${idx}`}
-              contentContainerStyle={styles.handList}
-              renderItem={({ item }) => (
-                <Card value={item.value} suit={item.suit} style={styles.card} />
-              )}
-              showsHorizontalScrollIndicator={false}
-            />
-          </View>
-        </>
-      )}
+
+      {/* Centre de table : pile condensée (5 dernières cartes), en éventail */}
+      <View style={styles.tableCenter} pointerEvents="none">
+        <View style={styles.compactPile}>
+          {visiblePile.map((c, idx, arr) => {
+            const offset = (idx - (arr.length - 1)) * 8; // petites translations
+            return (
+              <View
+                key={`${c.suit}-${c.value}-${idx}-${pile.length}`}
+                style={[
+                  styles.compactCardWrap,
+                  { top: -offset, left: -offset },
+                ]}
+              >
+                <Card value={c.value} suit={c.suit} />
+              </View>
+            );
+          })}
+          {/* Overlay animé pour la dernière pose */}
+          {animBatch.length > 0 && (
+            <Animated.View
+              style={{
+                position: "absolute",
+                flexDirection: "row",
+                opacity: animOpacity,
+                transform: [{ translateY: animTranslate }],
+              }}
+            >
+              {animBatch.map((c, i) => (
+                <View
+                  key={`${c.suit}-${c.value}-anim-${i}`}
+                  style={styles.compactCardWrap}
+                >
+                  <Card value={c.value} suit={c.suit} />
+                </View>
+              ))}
+            </Animated.View>
+          )}
+        </View>
+      </View>
+
+      {/* Main & actions */}
+      <View style={styles.bottom}>
+        {errorMsg ? <Text style={styles.error}>{errorMsg}</Text> : null}
+
+        <FlatList
+          horizontal
+          data={myHandSorted}
+          keyExtractor={(item: PlayingCard, idx) =>
+            `${item.suit}-${item.value}-${idx}`
+          }
+          contentContainerStyle={styles.handList}
+          renderItem={({ item, index }) => {
+            const selected = selectedIdxs.includes(index);
+            return (
+              <Pressable
+                onPress={() => toggleSelect(index)}
+                style={{ opacity: myTurn ? 1 : 0.7 }}
+              >
+                <Card
+                  value={item.value}
+                  suit={item.suit}
+                  style={[styles.card, selected && styles.cardSelected]}
+                />
+              </Pressable>
+            );
+          }}
+          showsHorizontalScrollIndicator={false}
+        />
+
+        <View style={styles.actions}>
+          <Pressable
+            style={[styles.btn, !myTurn && styles.btnDisabled]}
+            onPress={onPlay}
+            disabled={!myTurn}
+          >
+            <Text style={styles.btnText}>Jouer</Text>
+          </Pressable>
+
+          {/* Passer (verrou) — clair et distinct */}
+          <Pressable
+            style={[
+              styles.btnOutline,
+              (!myTurn || !isPassEnabled()) && styles.btnDisabled,
+            ]}
+            onPress={onPass}
+            disabled={!myTurn || !isPassEnabled()}
+          >
+            <Text style={styles.btnOutlineText}>Passer (verrou)</Text>
+          </Pressable>
+
+          {/* Se coucher — distinct visuellement */}
+          <Pressable
+            style={[
+              styles.btnDanger,
+              (!myTurn || !isFoldEnabled()) && styles.btnDisabled,
+            ]}
+            onPress={onFold}
+            disabled={!myTurn || !isFoldEnabled()}
+          >
+            <Text style={styles.btnText}>Se coucher</Text>
+          </Pressable>
+        </View>
+      </View>
     </View>
   );
 }
 
+function clampHistory(h: EngineEvent[], max = 80) {
+  if (h.length <= max) return h;
+  return h.slice(h.length - max);
+}
+
 const styles = StyleSheet.create({
-  mainArea: {
-    flex: 1,
-    position: 'relative',
-    backgroundColor: '#021020',
+  // — top bar —
+  topBar: {
+    paddingTop: 14,
+    paddingHorizontal: 12,
+    paddingBottom: 10,
+    backgroundColor: "#0b1c33",
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.06)",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
-  container: {
-    flex: 1,
-    backgroundColor: '#021020',
-    alignItems: 'center',
-    paddingTop: 20,
-    paddingHorizontal: 20,
-    zIndex: 1,
+  historyCol: { flex: 1, paddingRight: 8 },
+  histText: { color: "#cde2ff", fontSize: 13, marginBottom: 2 },
+  histTextStrong: { fontWeight: "700", color: "#ffffff" },
+  turnPill: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderRadius: 999,
   },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#fff',
+  turnText: { color: "#cde2ff", fontSize: 12 },
+  turnStrong: { fontWeight: "800", color: "#fff" },
+
+  // centre de table
+  tableCenter: {
+    position: "absolute",
+    top: "36%",
+    left: 0,
+    right: 0,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  subtitle: {
-    fontSize: 18,
-    color: '#cde2ff',
-    marginTop: 16,
-    alignSelf: 'flex-start',
+  compactPile: {
+    width: 140,
+    height: 190,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(2,16,32,0.35)",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
   },
-  handList: {
-    paddingVertical: 10,
-    paddingHorizontal: 18,
-  },
-  card: {
-    marginRight: 10,
-  },
-  deckContainer: {
-    marginTop: 'auto',
-    paddingVertical: 10,
-  },
-  opponentsLayer: {
-    position: 'absolute',
-    top: 0, left: 0, right: 0, bottom: 0,
-    zIndex: 2,
-    elevation: 2,
-  },
-  opponentContainer: {
-    position: 'absolute',
-    maxWidth: 180,
-    padding: 6,
+  compactCardWrap: {
+    position: "absolute",
+    width: 130,
+    height: 180,
     borderRadius: 8,
-    backgroundColor: 'rgba(2,16,32,0.6)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
   },
-  topLeft: { top: 10, left: 10, alignItems: 'flex-start' },
-  topRight: { top: 10, right: 10, alignItems: 'flex-end' },
-  bottomLeft: { bottom: 10, left: 10, alignItems: 'flex-start' },
-  bottomRight: { bottom: 10, right: 10, alignItems: 'flex-end' },
-  opponentLabel: {
-    color: '#cde2ff',
-    fontSize: 12,
-    fontWeight: '600',
-    marginBottom: 4,
+
+  // bas
+  bottom: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "#021020",
   },
-  miniDeckRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  handList: { paddingVertical: 10, paddingHorizontal: 18 },
+  card: { marginRight: 10 },
+  cardSelected: {
+    transform: [{ translateY: -10 }],
+    borderWidth: 3,
+    borderColor: "#42b0ff",
   },
-  miniCard: {
-    width: 26,
-    height: 38,
-    borderRadius: 4,
-    // on laisse le fond géré par le composant Card
-    borderWidth: 1,
-    borderColor: '#3b5573',
-    overflow: 'hidden',
-    backgroundColor: '#123a6b',
+  error: { color: "#ff7a7a", paddingHorizontal: 16, paddingTop: 8 },
+
+  actions: {
+    flexDirection: "row",
+    gap: 12,
+    padding: 16,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  miniCardOverlap: {
-    marginLeft: -12,
+  btn: {
+    backgroundColor: "#2f6df0",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 10,
   },
-  miniOverflow: {
-    color: '#cde2ff',
-    fontSize: 11,
-    marginLeft: 6,
+  btnDanger: {
+    backgroundColor: "#e94c4c",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 10,
   },
-  backCard: {
-    width: 32,
-    height: 48,
-    borderRadius: 6,
-    backgroundColor: '#0e223c', // dos de carte
-    borderWidth: 1,
-    borderColor: '#3b5573',
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
+  btnOutline: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: "#2f6df0",
   },
-  backCount: {
-    color: '#cde2ff',
-    fontSize: 14,
-    fontWeight: '700',
-  },
+  btnDisabled: { opacity: 0.6 },
+  btnText: { color: "#fff", fontWeight: "700" },
+  btnOutlineText: { color: "#cde2ff", fontWeight: "700" },
 });
