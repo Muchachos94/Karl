@@ -88,10 +88,10 @@ export type TrickState = {
   currentIndex: number;
   patternCount: number | null; // 1..4
   topValueIdx: number | null; // idx dans RANK_ORDER
-  pile: PlayingCard[]; // historique du pli (toutes les cartes jouées)
+  pile: PlayingCard[]; // historique du pli
   lastPlayerIndex: number | null;
   lock: LockState; // verrou d’égalité
-  folded: boolean[]; // couchés (dans le pli courant)
+  folded: boolean[]; // couchés (pli courant)
   mayFinishOnTwo: boolean; // déblocage exceptionnel
 };
 export type EngineState = {
@@ -99,9 +99,10 @@ export type EngineState = {
   trick: TrickState;
   ranking: string[];
   forcedLast: string | null;
+  ended: boolean; // 👈 partie coupée (président trouvé)
 };
 
-// --- Timeline pour l’historique & animations ---
+// --- Timeline pour l’UI ---
 export type EngineEvent =
   | { kind: "startTrick"; starter: string }
   | { kind: "play"; player: string; cards: PlayingCard[] }
@@ -112,12 +113,14 @@ export type EngineEvent =
   | { kind: "cut"; value: Value } // carré coupe
   | { kind: "two"; player: string } // 2 termine le pli
   | { kind: "endTrick"; nextStarter: string }
-  | { kind: "forcedLast"; player: string };
+  | { kind: "forcedLast"; player: string }
+  | { kind: "president"; player: string }; // 👈 premier gagnant
 
 export class PresidentEngine {
   state: EngineState;
   rng: () => number;
   private events: EngineEvent[] = [];
+  private stopOnFirstWinner = true; // 👈 règle demandée
 
   constructor(playerNames: string[], seed?: number) {
     // RNG seedée (xorshift32 simple)
@@ -139,22 +142,22 @@ export class PresidentEngine {
       hand: sortByRank(hands[i]),
     }));
 
-    // Dame de cœur commence : on place ce joueur en premier => starter = 0
+    // Dame de cœur commence : placer ce joueur en premier => starter = 0
     let startIdx = 0;
     players.forEach((p, i) => {
       if (p.hand.some((c) => c.value === "Q" && c.suit === "heart"))
         startIdx = i;
     });
     const rotated = players.slice(startIdx).concat(players.slice(0, startIdx));
-    const starter = 0;
 
     this.state = {
       players: rotated,
       ranking: [],
       forcedLast: null,
-      trick: newTrickState(rotated.length, starter),
+      ended: false,
+      trick: newTrickState(rotated.length, 0),
     };
-    this.events.push({ kind: "startTrick", starter: rotated[starter].name });
+    this.events.push({ kind: "startTrick", starter: rotated[0].name });
   }
 
   // --- Helpers ---
@@ -348,6 +351,15 @@ export class PresidentEngine {
       tr.lock = { active: false };
     }
 
+    // ❗ Si le joueur vide sa main ➜ Président immédiat, fin de partie
+    if (p.hand.length === 0 && this.stopOnFirstWinner) {
+      this.state.ranking.push(p.name);
+      this.state.ended = true;
+      this.events.push({ kind: "president", player: p.name });
+      // personne ne joue "sur" le président : on stoppe le pli en cours
+      return { trickEnd: true, cutPile: false };
+    }
+
     // 2 ferme le pli
     if (cards.some((c) => c.value === "2")) {
       this.events.push({ kind: "two", player: p.name });
@@ -392,14 +404,15 @@ export class PresidentEngine {
         lock: safeLock,
         folded: s.trick.folded.slice(),
         mayFinishOnTwo: s.trick.mayFinishOnTwo,
-        pile: s.trick.pile.slice(), // 👈 pile complète
+        pile: s.trick.pile.slice(),
       },
       ranking: s.ranking.slice(),
       forcedLast: s.forcedLast,
+      ended: s.ended,
     };
   }
 
-  /** Récupère et vide la file d’événements (pour l’historique & animations) */
+  /** Récupère et vide la file d’événements (pour l’intervalle côté UI) */
   popEvents(): EngineEvent[] {
     const out = this.events.slice();
     this.events.length = 0;
@@ -407,6 +420,7 @@ export class PresidentEngine {
   }
 
   humanPlay(cardsIdx: number[]): { ok: boolean; error?: string } {
+    if (this.state.ended) return { ok: false, error: "Partie terminée." };
     const st = this.state;
     const i = st.trick.currentIndex;
     const p = st.players[i];
@@ -415,12 +429,13 @@ export class PresidentEngine {
     if (err) return { ok: false, error: err };
 
     const { trickEnd } = this.applyPlay(i, cards);
-    if (trickEnd) this.endTrickAndRotate();
-    else st.trick.currentIndex = this.nextIndex(i);
+    if (trickEnd && !st.ended) this.endTrickAndRotate();
+    else if (!st.ended) st.trick.currentIndex = this.nextIndex(i);
     return { ok: true };
   }
 
   humanPass(): { ok: boolean; error?: string } {
+    if (this.state.ended) return { ok: false, error: "Partie terminée." };
     const st = this.state;
     const i = st.trick.currentIndex;
     const tr = st.trick;
@@ -443,11 +458,12 @@ export class PresidentEngine {
       reason: "lock",
     });
     tr.currentIndex = this.nextIndex(i);
-    tr.lock = { active: false }; // le verrou tombe quand la cible passe
+    tr.lock = { active: false };
     return { ok: true };
   }
 
   humanFold(): { ok: boolean; error?: string } {
+    if (this.state.ended) return { ok: false, error: "Partie terminée." };
     const st = this.state;
     const i = st.trick.currentIndex;
     const tr = st.trick;
@@ -458,10 +474,8 @@ export class PresidentEngine {
           "Vous ne pouvez pas vous coucher en ouverture. Jouez des cartes.",
       };
     }
-    if (tr.lock.active && tr.lock.targetIndex === i) {
-      // si on se couche ici, on éteint le verrou
+    if (tr.lock.active && tr.lock.targetIndex === i)
       tr.lock = { active: false };
-    }
     this.events.push({
       kind: "fold",
       player: st.players[i].name,
@@ -479,14 +493,14 @@ export class PresidentEngine {
     return { ok: true };
   }
 
-  /** Laisse jouer l’IA jusqu’à ce que ce soit le tour d’un humain ou qu’un pli se termine. */
+  /** IA jusqu’à humain ou fin */
   advanceUntilHuman(humanNames: Set<string>): void {
     const st = this.state;
     const isHuman = (idx: number) => humanNames.has(st.players[idx].name);
-
     let passesAtOpening = 0;
 
     loop: while (true) {
+      if (st.ended) break;
       const i = st.trick.currentIndex;
       if (st.players.length <= 1) break;
       if (isHuman(i)) break;
@@ -523,13 +537,11 @@ export class PresidentEngine {
 
         // en cours de pli
         if (st.trick.lock.active && st.trick.lock.targetIndex === i) {
-          // passe (verrou)
           this.events.push({ kind: "pass", player: p.name, reason: "lock" });
           st.trick.currentIndex = this.nextIndex(i);
           st.trick.lock = { active: false };
           continue;
         } else {
-          // se coucher
           this.events.push({
             kind: "fold",
             player: p.name,
@@ -590,6 +602,7 @@ export class PresidentEngine {
       }
 
       const { trickEnd } = this.applyPlay(i, play);
+      if (st.ended) break; // président trouvé
       if (trickEnd) this.endTrickAndRotate();
       else st.trick.currentIndex = this.nextIndex(i);
       if (isHuman(st.trick.currentIndex)) break;
@@ -600,6 +613,8 @@ export class PresidentEngine {
   private endTrickAndRotate() {
     const st = this.state;
     const tr = st.trick;
+    if (st.ended) return; // coupé par président
+
     const last = tr.lastPlayerIndex ?? tr.currentIndex;
     const lastName = st.players[last]?.name;
 
